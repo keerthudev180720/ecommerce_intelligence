@@ -1,0 +1,89 @@
+version: "3.8"
+
+services:
+  # -----------------------------
+  # MinIO for CSV storage
+  # -----------------------------
+  minio:
+    image: quay.io/minio/minio
+    container_name: minio
+    ports:
+      - "9000:9000"   # API endpoint
+      - "9001:9001"   # Web console
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+
+  # -----------------------------
+  # PostgreSQL for Airflow metadata
+  # -----------------------------
+  airflow-db:
+    image: postgres:13
+    container_name: airflow-db
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow_db_data:/var/lib/postgresql/data
+
+  # -----------------------------
+  # PostgreSQL for CSV/application data
+  # -----------------------------
+  app-db:
+    image: postgres:13
+    container_name: app-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgresql
+      POSTGRES_DB: postgres
+    ports:
+      - "5433:5432"  # optional, access from host
+    volumes:
+      - app_db_data:/var/lib/postgresql/data
+
+  # -----------------------------
+  # Airflow Scheduler
+  # -----------------------------
+  airflow-scheduler:
+    image: apache/airflow:2.9.1
+    container_name: airflow-scheduler
+    depends_on:
+      - airflow-db
+      - app-db
+      - minio
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@airflow-db/airflow
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./scripts:/opt/airflow/scripts
+      - ./scripts/data/:/opt/airflow/data
+    command: scheduler
+
+  # -----------------------------
+  # Airflow Webserver
+  # -----------------------------
+  airflow-webserver:
+    image: apache/airflow:2.9.1
+    container_name: airflow-webserver
+    depends_on:
+      - airflow-scheduler
+    ports:
+      - "8080:8080"
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@airflow-db/airflow
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./scripts:/opt/airflow/scripts
+      - ./scripts/data/:/opt/airflow/data
+    command: webserver
+
+volumes:
+  minio_data:
+  airflow_db_data:
+  app_db_data:
